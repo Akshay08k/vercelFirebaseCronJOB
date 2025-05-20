@@ -1,8 +1,11 @@
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import nodemailer from "nodemailer";
+import dotenv from "dotenv";
 
-// Initialize Firebase only once
+dotenv.config();
+
 if (!getApps().length) {
   initializeApp({
     credential: cert(
@@ -12,8 +15,8 @@ if (!getApps().length) {
 }
 
 const db = getFirestore();
+const auth = getAuth();
 
-// Setup nodemailer transporter
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -27,9 +30,28 @@ export default async function handler(req, res) {
     return res.status(401).send("Unauthorized");
   }
 
-  const log = [];
-
   try {
+    // 1. Sync all user emails from Auth to Firestore
+    let nextPageToken;
+    do {
+      const listUsersResult = await auth.listUsers(1000, nextPageToken);
+      const users = listUsersResult.users;
+
+      const updatePromises = users.map(async (user) => {
+        const email = user.email || user.providerData[0]?.email || null;
+        if (email) {
+          await db
+            .collection("users")
+            .doc(user.uid)
+            .set({ email }, { merge: true });
+        }
+      });
+
+      await Promise.all(updatePromises);
+      nextPageToken = listUsersResult.pageToken;
+    } while (nextPageToken);
+
+    // 2. Fetch tasks due for reminder within last 24 hours and not notified
     const now = Timestamp.now();
     const twentyFourHoursAgo = Timestamp.fromDate(
       new Date(now.toDate().getTime() - 24 * 60 * 60 * 1000)
@@ -43,51 +65,50 @@ export default async function handler(req, res) {
       .where("notified", "==", false)
       .get();
 
-    log.push(`📝 Found ${snapshot.size} tasks to check`);
-
     if (snapshot.empty) {
-      return res.status(200).send("✅ No pending reminders.");
+      return res.status(200).send("No pending reminders.");
     }
 
-    const results = await Promise.all(
-      snapshot.docs.map(async (doc) => {
-        const task = doc.data();
-        log.push(`📌 Task: ${task.title}`);
+    // 3. Send reminder emails for each task
+    const sendPromises = snapshot.docs.map(async (doc) => {
+      const task = doc.data();
 
-        const userDoc = await db.collection("users").doc(task.userId).get();
-        const email = userDoc.data()?.email;
+      // Get email from synced Firestore user doc
+      const userDoc = await db.collection("users").doc(task.userId).get();
+      const email = userDoc.data()?.email;
 
-        if (!email) {
-          log.push(`⚠️ No email found for user ${task.userId}`);
-          return `⛔ Skipped "${task.title}" (no email)`;
-        }
+      if (!email) {
+        return `No email for user ${task.userId} (skipped task "${task.title}")`;
+      }
 
-        try {
-          const mailOptions = {
-            from: process.env.EMAIL_USER,
-            to: email,
-            subject: `🔔 Reminder: ${task.title}`,
-            text: task.description || "You have a task reminder!",
-          };
+      const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: email,
+        subject: `🔔 Reminder: ${task.title}`,
+        text: task.description || "You have a task reminder!",
+      };
 
-          log.push(`📤 Sending email to ${email} for "${task.title}"`);
+      try {
+        await transporter.sendMail(mailOptions);
+        await doc.ref.update({ notified: true });
+        return `Reminder sent to ${email} for task "${task.title}"`;
+      } catch (e) {
+        return `Failed to send email to ${email} for task "${task.title}": ${e.message}`;
+      }
+    });
 
-          const result = await transporter.sendMail(mailOptions);
-          log.push(`✅ Email sent: ${result.response}`);
+    const sendResults = await Promise.all(sendPromises);
 
-          await doc.ref.update({ notified: true });
-          return `✅ Reminder sent to ${email} for "${task.title}"`;
-        } catch (e) {
-          log.push(`❌ Failed to send to ${email}: ${e.message}`);
-          return `❌ Email error for "${task.title}"`;
-        }
-      })
-    );
-
-    log.push(...results);
-    return res.status(200).send(log.join("\n"));
+    return res
+      .status(200)
+      .send(
+        [
+          "User emails synced successfully.",
+          `Processed ${snapshot.size} reminders.`,
+          ...sendResults,
+        ].join("\n")
+      );
   } catch (error) {
-    log.push(`❌ Error in cron job: ${error.message}`);
-    return res.status(500).send(log.join("\n"));
+    return res.status(500).send(`Error in cron job: ${error.message}`);
   }
 }
