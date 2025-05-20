@@ -82,7 +82,7 @@ export default async function handler(req, res) {
       }
 
       const mailOptions = {
-        from: process.env.EMAIL_USER,
+        from: "TaskFlow",
         to: email,
         subject: `🔔 Reminder: ${task.title}`,
         text: task.description || "You have a task reminder!",
@@ -108,7 +108,7 @@ export default async function handler(req, res) {
         This reminder was generated automatically by your Task Manager.
       </p>
       <p style="font-size: 12px; color: #aaa;">
-        © ${new Date().getFullYear()} Your Awesome App. All rights reserved.
+        © ${new Date().getFullYear()} TaskFlow. All rights reserved.
       </p>
     </div>
   `,
