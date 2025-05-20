@@ -86,6 +86,32 @@ export default async function handler(req, res) {
         to: email,
         subject: `🔔 Reminder: ${task.title}`,
         text: task.description || "You have a task reminder!",
+        html: `
+    <div style="
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: #222;
+      background: #f9f9f9;
+      padding: 20px;
+      border-radius: 8px;
+      max-width: 600px;
+      margin: auto;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    ">
+      <h2 style="color: #0070f3; border-bottom: 2px solid #0070f3; padding-bottom: 8px;">
+        Reminder: ${task.title}
+      </h2>
+      <p style="font-size: 16px; line-height: 1.5;">
+        ${task.description || "Hey! Just a friendly reminder about your task."}
+      </p>
+      <hr style="border: none; border-top: 1px solid #ddd; margin: 20px 0;" />
+      <p style="font-size: 14px; color: #555;">
+        This reminder was generated automatically by your Task Manager.
+      </p>
+      <p style="font-size: 12px; color: #aaa;">
+        © ${new Date().getFullYear()} Your Awesome App. All rights reserved.
+      </p>
+    </div>
+  `,
       };
 
       try {
