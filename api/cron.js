@@ -1,11 +1,11 @@
-import { initializeApp, applicationDefault, getApps } from "firebase-admin/app";
+import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import nodemailer from "nodemailer";
 
 // Initialize Firebase app only once
 if (!getApps().length) {
   initializeApp({
-    credential: applicationDefault(),
+    credential: cert(JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)),
   });
 }
 
