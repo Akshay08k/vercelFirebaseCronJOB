@@ -5,7 +5,9 @@ import nodemailer from "nodemailer";
 // Initialize Firebase app only once
 if (!getApps().length) {
   initializeApp({
-    credential: cert(JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)),
+    credential: cert(
+      JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON)
+    ),
   });
 }
 
@@ -21,26 +23,26 @@ const transporter = nodemailer.createTransport({
 });
 
 export default async function handler(req, res) {
-  // Authorization check for cron protection
   if (req.headers.authorization !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).send("Unauthorized");
   }
 
   try {
     const now = Timestamp.now();
-    const fiveMinAgo = Timestamp.fromDate(
-      new Date(now.toDate().getTime() - 5 * 60 * 1000)
+    const twentyFourHoursAgo = Timestamp.fromDate(
+      new Date(now.toDate().getTime() - 24 * 60 * 60 * 1000)
     );
 
     const snapshot = await db
       .collection("tasks")
       .where("reminder", "<=", now)
-      .where("reminder", ">", fiveMinAgo)
+      .where("reminder", ">", twentyFourHoursAgo)
       .where("completed", "==", false)
+      .where("notified", "==", false) // only tasks not notified yet
       .get();
 
     if (snapshot.empty) {
-      return res.status(200).send("✅ No reminders to send.");
+      return res.status(200).send("✅ No pending reminders.");
     }
 
     const emailPromises = snapshot.docs.map(async (doc) => {
@@ -49,12 +51,15 @@ export default async function handler(req, res) {
       const email = userDoc.data()?.email;
       if (!email) return;
 
-      return transporter.sendMail({
+      await transporter.sendMail({
         from: process.env.EMAIL_USER,
         to: email,
         subject: `🔔 Reminder: ${task.title}`,
         text: task.description || "You have a task reminder!",
       });
+
+      // Mark task as notified to avoid duplicate reminders
+      await doc.ref.update({ notified: true });
     });
 
     await Promise.all(emailPromises);
