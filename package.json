@@ -1,0 +1,10 @@
+{
+  "name": "taskflow-reminder-service",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "^11.10.1",
+    "nodemailer": "^6.9.1"
+  }
+}
